@@ -92,6 +92,23 @@
   }
   .chip-x:active { background:rgba(0,0,0,.14); }
   .preview-hint { font-size:11px; color:var(--sub); margin-top:8px; }
+  /* 編集画面 */
+  .ex-card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:12px; }
+  .ex-head { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .field { border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; font-family:inherit; color:var(--ink); background:#fff; width:100%; }
+  .field:focus { outline:none; border-color:var(--accent); }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .seg button { border:none; background:#fff; padding:8px 14px; font-size:13px; color:var(--sub); }
+  .seg button.on { background:var(--accent); color:#fff; }
+  .mini { background:transparent; border:1px solid var(--line); border-radius:8px; width:34px; height:34px; font-size:16px; color:var(--ink); display:grid; place-items:center; }
+  .mini:disabled { opacity:.3; }
+  .lbl { font-size:12px; color:var(--sub); margin-bottom:4px; display:block; }
+  .img-thumbs { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .thumb { width:62px; height:62px; border-radius:10px; background:var(--bg); border:1px solid var(--line); position:relative; display:grid; place-items:center; overflow:hidden; background-size:cover; background-position:center; }
+  .thumb .x { position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:#fff; border:1px solid var(--line); font-size:12px; color:var(--sub); display:grid; place-items:center; }
+  .thumb-add { width:62px; height:62px; border-radius:10px; border:1px dashed var(--line); background:transparent; color:var(--sub); font-size:22px; }
+  .thumb-label { font-size:9px; color:var(--sub); position:absolute; bottom:2px; max-width:58px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; background:rgba(255,255,255,.7); border-radius:4px; padding:0 2px; }
 </style>
 </head>
 <body>
@@ -101,33 +118,39 @@
 
 <script>
 // ============ データ（複数ルーティン） ============
-const ROUTINES = [
-  {
-    id:"morning", name:"朝のリセット", emoji:"🌅",
-    items:[
-      { name:"首まわりストレッチ", mode:"time", value:30, rest:5,  imgs:["開始姿勢","倒した姿勢"] },
-      { name:"肩甲骨まわし",       mode:"reps", value:10, rest:10, imgs:["前まわし","後ろまわし"] },
-      { name:"プランク",           mode:"time", value:20, rest:15, imgs:["キープ姿勢"] },
-      { name:"股関節ストレッチ",   mode:"time", value:40, rest:0,  imgs:["開始","深めた姿勢"] },
-    ],
-  },
-  {
-    id:"night", name:"夜のほぐし", emoji:"🌙",
-    items:[
-      { name:"深呼吸",             mode:"time", value:20, rest:5,  imgs:["吸う","吐く"] },
-      { name:"前屈ストレッチ",     mode:"time", value:30, rest:10, imgs:["開始","深めた姿勢"] },
-      { name:"腿裏のばし",         mode:"time", value:30, rest:0,  imgs:["左脚","右脚"] },
-    ],
-  },
-  {
-    id:"quick", name:"さっと筋トレ", emoji:"⚡",
-    items:[
-      { name:"スクワット",         mode:"reps", value:15, rest:15, imgs:["立ち","しゃがみ"] },
-      { name:"腕立て伏せ",         mode:"reps", value:10, rest:15, imgs:["開始","下げた姿勢"] },
-      { name:"プランク",           mode:"time", value:30, rest:0,  imgs:["キープ姿勢"] },
-    ],
-  },
-];
+// 画像は {src, label} の配列。src は dataURL（未登録ならnull＝枠のみ表示）、label は説明。
+function img(label){ return { src:null, label }; }
+function defaultRoutines(){
+  return [
+    {
+      id:"morning", name:"朝のリセット", emoji:"🌅",
+      items:[
+        { id:"e1", name:"首まわりストレッチ", mode:"time", value:30, rest:5,  imgs:[img("開始姿勢"),img("倒した姿勢")] },
+        { id:"e2", name:"肩甲骨まわし",       mode:"reps", value:10, rest:10, imgs:[img("前まわし"),img("後ろまわし")] },
+        { id:"e3", name:"プランク",           mode:"time", value:20, rest:15, imgs:[img("キープ姿勢")] },
+        { id:"e4", name:"股関節ストレッチ",   mode:"time", value:40, rest:0,  imgs:[img("開始"),img("深めた姿勢")] },
+      ],
+    },
+    {
+      id:"night", name:"夜のほぐし", emoji:"🌙",
+      items:[
+        { id:"e5", name:"深呼吸",             mode:"time", value:20, rest:5,  imgs:[img("吸う"),img("吐く")] },
+        { id:"e6", name:"前屈ストレッチ",     mode:"time", value:30, rest:10, imgs:[img("開始"),img("深めた姿勢")] },
+        { id:"e7", name:"腿裏のばし",         mode:"time", value:30, rest:0,  imgs:[img("左脚"),img("右脚")] },
+      ],
+    },
+    {
+      id:"quick", name:"さっと筋トレ", emoji:"⚡",
+      items:[
+        { id:"e8",  name:"スクワット",        mode:"reps", value:15, rest:15, imgs:[img("立ち"),img("しゃがみ")] },
+        { id:"e9",  name:"腕立て伏せ",        mode:"reps", value:10, rest:15, imgs:[img("開始"),img("下げた姿勢")] },
+        { id:"e10", name:"プランク",          mode:"time", value:30, rest:0,  imgs:[img("キープ姿勢")] },
+      ],
+    },
+  ];
+}
+let ROUTINES = defaultRoutines();
+const uid = () => "x" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 
 const STATUS = {
   full:{ label:"しっかりできた", color:"var(--full)" },
@@ -151,11 +174,22 @@ let ytList = [];                                 // [{id, title, videoId}] ユ�
 function loadState(){
   try {
     const raw = localStorage.getItem(SKEY);
-    if(raw){ const s=JSON.parse(raw); log=s.log||{}; sound={...sound, ...(s.sound||{})}; ytList=s.ytList||[]; }
+    if(raw){ const s=JSON.parse(raw); log=s.log||{}; sound={...sound, ...(s.sound||{})}; ytList=s.ytList||[]; if(s.routines&&s.routines.length) ROUTINES=s.routines.map(normalizeRoutine); }
   } catch(e){ /* プライベートモード等では保存なしで続行 */ }
 }
+// 保存データを現行の形に整える（古い画像形式や欠けたidを補正）
+function normalizeRoutine(r){
+  r.id = r.id || uid();
+  r.items = (r.items||[]).map(it=>{
+    it.id = it.id || uid();
+    it.imgs = (it.imgs||[]).map(im => typeof im==="string" ? { src:null, label:im } : { src:im.src||null, label:im.label||"" });
+    return it;
+  });
+  return r;
+}
 function saveState(){
-  try { localStorage.setItem(SKEY, JSON.stringify({ log, sound, ytList })); } catch(e){}
+  try { localStorage.setItem(SKEY, JSON.stringify({ log, sound, ytList, routines:ROUTINES })); }
+  catch(e){ alert("保存できませんでした。画像が多すぎる可能性があります（端末の保存上限）。"); }
 }
 
 // YouTubeのURL/IDから videoId を取り出す
@@ -353,6 +387,7 @@ function render(){
   else if(state.screen==="run") renderRun();
   else if(state.screen==="done") renderDone();
   else if(state.screen==="calendar") renderCalendar();
+  else if(state.screen==="edit") renderEdit();
 }
 
 function headerHTML(active){
@@ -366,15 +401,18 @@ function headerHTML(active){
 function renderHome(){
   const picks = ROUTINES.map(r=>{
     const total=r.items.reduce((s,i)=>s+(i.mode==="time"?i.value:30)+i.rest,0);
-    return `<button class="routine-pick" onclick="start('${r.id}')">
-      <span class="pick-emoji">${r.emoji}</span>
-      <span style="flex:1">
-        <div style="font-size:17px; font-weight:700">${r.name}</div>
+    return `<div class="routine-pick" style="padding-right:8px">
+      <span class="pick-emoji" onclick="start('${r.id}')" style="cursor:pointer">${r.emoji}</span>
+      <span style="flex:1; cursor:pointer" onclick="start('${r.id}')">
+        <div style="font-size:17px; font-weight:700">${escapeHtml(r.name)}</div>
         <div class="muted" style="font-size:12px; margin-top:2px">${r.items.length}種目 ・ 約${Math.round(total/60)}分</div>
       </span>
-      <span class="muted" style="font-size:20px">›</span>
+      <button class="ghost" style="padding:7px 11px; font-size:12px" onclick="openEdit('${r.id}')">編集</button>
+    </div>`;
+  }).join("") + `
+    <button class="routine-pick" style="justify-content:center; border-style:dashed; color:var(--sub)" onclick="openEdit('new')">
+      ＋ 新しいルーティンを作る
     </button>`;
-  }).join("");
 
   const dis = sound.bgm?"":"disabled";
   const chips = BGMS.map(b=>`
@@ -496,17 +534,24 @@ function renderRun(){
     </div>`;
   } else {
     const d=step.data;
-    const dots = d.imgs.length>1 ? `<div class="dots">${d.imgs.map((_,i)=>`<button class="dot ${i===run.imgIdx?"on":""}" onclick="setImg(${i})"></button>`).join("")}</div>` : "";
+    const imgs = d.imgs || [];
+    const cur = imgs[run.imgIdx];
+    const frame = (cur && cur.src)
+      ? `<div class="img-frame" style="background-image:url('${cur.src}'); background-size:cover; background-position:center">
+           ${cur.label ? `<span style="position:absolute; bottom:8px; background:rgba(0,0,0,.45); color:#fff; font-size:11px; padding:2px 8px; border-radius:10px">${escapeHtml(cur.label)}</span>` : ""}
+         </div>`
+      : `<div class="img-frame">
+           <span style="font-size:14px">🖼 ${cur ? escapeHtml(cur.label||"動作イメージ") : "動作イメージ"}</span>
+           <span class="muted" style="position:absolute; bottom:8px; font-size:11px">画像は編集画面から登録できます</span>
+         </div>`;
+    const dots = imgs.length>1 ? `<div class="dots">${imgs.map((_,i)=>`<button class="dot ${i===run.imgIdx?"on":""}" onclick="setImg(${i})"></button>`).join("")}</div>` : "";
     const main = d.mode==="time"
       ? `<div style="text-align:center; margin:20px 0 8px"><div class="big-num num" id="timer">${run.remain}</div><div class="muted" style="font-size:13px">秒 ・ 自動で次へ</div></div>`
       : `<div style="text-align:center; margin:20px 0"><div style="font-size:40px; font-weight:700">${d.value}<span style="font-size:18px">回</span></div><button class="primary" style="margin-top:16px" onclick="next(true)">できた → 次へ</button></div>`;
     body=`<div class="card">
-      <div class="img-frame">
-        <span style="font-size:14px">🖼 ${d.imgs[run.imgIdx]}</span>
-        <span class="muted" style="position:absolute; bottom:8px; font-size:11px">動作イメージ（枠のみ）</span>
-      </div>
+      ${frame}
       ${dots}
-      <div style="font-size:22px; font-weight:700; text-align:center">${d.name}</div>
+      <div style="font-size:22px; font-weight:700; text-align:center; margin-top:12px">${escapeHtml(d.name)}</div>
       ${main}
     </div>`;
   }
@@ -566,6 +611,181 @@ function renderCalendar(){
     <button class="primary" onclick="go('home')">ホームへ</button>
   </div>`;
 }
+
+// ============ 編集画面 ============
+let editing = null;   // 編集中ルーティンのディープコピー
+const EMOJIS = ["🌅","🌙","⚡","🧘","🏃","💪","🌿","☀️","🌊","⭐"];
+
+function openEdit(id){
+  stopPreview();
+  if(id==="new"){
+    editing = { id:uid(), name:"新しいルーティン", emoji:"🌿", items:[ newExercise() ] };
+  } else {
+    const r = ROUTINES.find(x=>x.id===id);
+    editing = JSON.parse(JSON.stringify(r));   // 元を壊さないようコピー
+  }
+  state.screen="edit"; render();
+}
+function newExercise(){ return { id:uid(), name:"", mode:"time", value:30, rest:10, imgs:[] }; }
+
+function renderEdit(){
+  const e = editing;
+  const emojiPicker = EMOJIS.map(em=>`<button class="mini ${e.emoji===em?"":""}" style="${e.emoji===em?"border-color:var(--accent);background:#EEF2F6":""}" onclick="setEmoji('${em}')">${em}</button>`).join("");
+
+  const cards = e.items.map((it,idx)=>{
+    const thumbs = it.imgs.map((im,i)=>`
+      <div class="thumb" style="${im.src?`background-image:url('${im.src}')`:""}">
+        ${im.src?"":`<span style="font-size:10px; color:var(--sub); padding:2px; text-align:center">${escapeHtml(im.label||"")}</span>`}
+        <span class="x" onclick="removeImg(${idx},${i})">×</span>
+      </div>`).join("");
+    const valueField = it.mode==="time"
+      ? `<div style="flex:1"><label class="lbl">時間（秒）</label>
+          <div class="row" style="margin-top:0">
+            <button class="mini" onclick="bump(${idx},'value',-5)">−</button>
+            <input class="field" style="text-align:center" type="number" min="1" value="${it.value}" onchange="setField(${idx},'value',this.value)">
+            <button class="mini" onclick="bump(${idx},'value',5)">＋</button>
+          </div></div>`
+      : `<div style="flex:1"><label class="lbl">回数</label>
+          <div class="row" style="margin-top:0">
+            <button class="mini" onclick="bump(${idx},'value',-1)">−</button>
+            <input class="field" style="text-align:center" type="number" min="1" value="${it.value}" onchange="setField(${idx},'value',this.value)">
+            <button class="mini" onclick="bump(${idx},'value',1)">＋</button>
+          </div></div>`;
+    return `<div class="ex-card">
+      <div class="ex-head">
+        <span class="muted" style="font-size:12px; width:20px">${idx+1}</span>
+        <input class="field" value="${escapeHtml(it.name)}" placeholder="種目名" onchange="setField(${idx},'name',this.value)">
+      </div>
+
+      <div class="row" style="margin-top:0">
+        <div class="seg">
+          <button class="${it.mode==="time"?"on":""}" onclick="setMode(${idx},'time')">時間</button>
+          <button class="${it.mode==="reps"?"on":""}" onclick="setMode(${idx},'reps')">回数</button>
+        </div>
+      </div>
+
+      <div class="row">
+        ${valueField}
+        <div style="flex:1"><label class="lbl">後の休憩（秒）</label>
+          <div class="row" style="margin-top:0">
+            <button class="mini" onclick="bump(${idx},'rest',-5)">−</button>
+            <input class="field" style="text-align:center" type="number" min="0" value="${it.rest}" onchange="setField(${idx},'rest',this.value)">
+            <button class="mini" onclick="bump(${idx},'rest',5)">＋</button>
+          </div></div>
+      </div>
+
+      <label class="lbl" style="margin-top:12px">動作の画像（複数可・タップで追加）</label>
+      <div class="img-thumbs">
+        ${thumbs}
+        <button class="thumb-add" onclick="pickImg(${idx})">＋</button>
+      </div>
+
+      <div class="row" style="margin-top:14px; justify-content:space-between">
+        <div style="display:flex; gap:8px">
+          <button class="mini" onclick="moveEx(${idx},-1)" ${idx===0?"disabled":""}>↑</button>
+          <button class="mini" onclick="moveEx(${idx},1)" ${idx===e.items.length-1?"disabled":""}>↓</button>
+        </div>
+        <button class="ghost" style="color:#B4524B; border-color:#E6C9C5" onclick="removeEx(${idx})">削除</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  app.innerHTML = `<div class="fade">
+    <div class="header">
+      <button class="ghost" onclick="cancelEdit()">← もどる</button>
+      <button class="ghost" style="opacity:1" onclick="saveEdit()">保存</button>
+    </div>
+    <label class="lbl">ルーティン名</label>
+    <input class="field" value="${escapeHtml(e.name)}" onchange="setName(this.value)">
+    <label class="lbl" style="margin-top:12px">アイコン</label>
+    <div class="row" style="flex-wrap:wrap; margin-top:4px">${emojiPicker}</div>
+
+    <p style="font-size:13px; font-weight:700; letter-spacing:1px; margin:22px 0 10px">種目（${e.items.length}）</p>
+    ${cards}
+    <button class="routine-pick" style="justify-content:center; border-style:dashed; color:var(--sub); margin-top:4px" onclick="addEx()">＋ 種目を追加</button>
+
+    <button class="primary" onclick="saveEdit()">保存してもどる</button>
+    <button class="ghost" style="width:100%; padding:12px; margin-top:10px" onclick="cancelEdit()">変更を破棄</button>
+  </div>`;
+}
+
+// 編集操作（editing を書き換えて再描画。保存時にROUTINESへ反映）
+function setName(v){ editing.name=v.trim()||"無題のルーティン"; }
+function setEmoji(em){ editing.emoji=em; render(); }
+function setField(idx,key,v){
+  if(key==="name"){ editing.items[idx].name=v; }
+  else { let n=parseInt(v,10); if(isNaN(n)) n=0; editing.items[idx][key]=Math.max(key==="rest"?0:1,n); render(); }
+}
+function bump(idx,key,delta){
+  const min = key==="rest"?0:1;
+  editing.items[idx][key]=Math.max(min, (editing.items[idx][key]||0)+delta);
+  render();
+}
+function setMode(idx,mode){
+  const it=editing.items[idx];
+  if(it.mode===mode) return;
+  it.mode=mode;
+  it.value = mode==="time"?30:10;   // タイプ変更時に自然な既定値へ
+  render();
+}
+function moveEx(idx,dir){
+  const a=editing.items, j=idx+dir;
+  if(j<0||j>=a.length) return;
+  [a[idx],a[j]]=[a[j],a[idx]];
+  render();
+}
+function removeEx(idx){
+  if(editing.items.length<=1){ alert("種目は最低1つ必要です。"); return; }
+  if(!confirm(`「${editing.items[idx].name||"この種目"}」を削除しますか？`)) return;
+  editing.items.splice(idx,1); render();
+}
+function addEx(){ editing.items.push(newExercise()); render(); }
+
+// 画像アップロード（ファイル選択→縮小→dataURL）
+function pickImg(idx){
+  const input=document.createElement("input");
+  input.type="file"; input.accept="image/*";
+  input.onchange=()=>{
+    const file=input.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      resizeDataUrl(reader.result, 640, (small)=>{
+        const label=prompt("この画像の説明（任意。例：開始姿勢）","")||"";
+        editing.items[idx].imgs.push({ src:small, label:label.slice(0,16) });
+        render();
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+function removeImg(exIdx,imgIdx){
+  editing.items[exIdx].imgs.splice(imgIdx,1); render();
+}
+// 画像を長辺maxに縮小してJPEG化（保存容量を抑える）
+function resizeDataUrl(dataUrl, max, cb){
+  const im=new Image();
+  im.onload=()=>{
+    let {width:w,height:h}=im;
+    if(w>h && w>max){ h=Math.round(h*max/w); w=max; }
+    else if(h>max){ w=Math.round(w*max/h); h=max; }
+    const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+    cv.getContext("2d").drawImage(im,0,0,w,h);
+    cb(cv.toDataURL("image/jpeg",0.8));
+  };
+  im.onerror=()=>cb(dataUrl);
+  im.src=dataUrl;
+}
+
+function saveEdit(){
+  // 空の種目名は補完
+  editing.items.forEach((it,i)=>{ if(!it.name.trim()) it.name=`種目${i+1}`; });
+  const i=ROUTINES.findIndex(r=>r.id===editing.id);
+  if(i>=0) ROUTINES[i]=editing; else ROUTINES.push(editing);
+  saveState();
+  editing=null; state.screen="home"; render();
+}
+function cancelEdit(){ editing=null; state.screen="home"; render(); }
 
 loadState();
 render();

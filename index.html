@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>ルーティンタイマー</title>
+<!-- PWA：ホーム画面に追加できるようにする -->
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#6E8AA6" />
+<link rel="icon" href="icons/icon-192.png" />
+<!-- iOS（ホーム画面追加時の見た目） -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="ルーティン" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<style>
+  :root {
+    --bg:#F3F1EC; --ink:#33322D; --sub:#8A867B; --line:#E2DDD2; --card:#FBFAF6;
+    --full:#7FA98B; --some:#E4C97E; --rest:#C9C3D6; --accent:#6E8AA6;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; }
+  body {
+    background:var(--bg); color:var(--ink);
+    font-family:'Hiragino Sans','Noto Sans JP',system-ui,sans-serif;
+    display:flex; justify-content:center; min-height:100vh;
+  }
+  #app { width:100%; max-width:460px; padding:env(safe-area-inset-top,0) 20px calc(48px + env(safe-area-inset-bottom,0)); }
+  .muted { color:var(--sub); }
+  .card {
+    background:var(--card); border:1px solid var(--line);
+    border-radius:18px; padding:20px; margin-bottom:12px;
+  }
+  button { font-family:inherit; cursor:pointer; }
+  .primary {
+    width:100%; padding:16px; background:var(--ink); color:#fff; border:none;
+    border-radius:14px; font-size:16px; font-weight:700; margin-top:20px;
+  }
+  .primary:active { opacity:.85; }
+  .ghost {
+    background:transparent; border:1px solid var(--line); color:var(--ink);
+    border-radius:10px; padding:8px 14px; font-size:13px;
+  }
+  .num { font-variant-numeric:tabular-nums; }
+  .fade { animation:fade .3s ease; }
+  @keyframes fade { from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+  .header { display:flex; align-items:center; justify-content:space-between; padding:28px 0 20px; }
+  .brand { font-size:13px; letter-spacing:3px; color:var(--sub); }
+  .routine-pick {
+    width:100%; text-align:left; background:var(--card); border:1px solid var(--line);
+    border-radius:16px; padding:18px 20px; margin-bottom:12px; display:flex;
+    align-items:center; gap:14px;
+  }
+  .routine-pick:active { border-color:var(--accent); }
+  .pick-emoji { font-size:26px; }
+  .progress-wrap { height:4px; background:var(--line); border-radius:4px; overflow:hidden; margin-bottom:24px; }
+  .progress-bar { height:100%; background:var(--accent); transition:width .3s; }
+  .big-num { font-size:64px; font-weight:700; }
+  .img-frame {
+    background:var(--bg); border-radius:14px; height:180px; display:grid;
+    place-items:center; color:var(--sub); margin-bottom:8px; position:relative;
+  }
+  .dots { display:flex; gap:6px; justify-content:center; margin-bottom:16px; }
+  .dot { width:8px; height:8px; border-radius:50%; border:none; background:var(--line); }
+  .dot.on { background:var(--accent); }
+  .toggle-row { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .switch { width:34px; height:20px; border-radius:20px; background:var(--line); position:relative; flex-shrink:0; transition:background .2s; }
+  .switch.on { background:var(--accent); }
+  .knob { position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .2s; }
+  .switch.on .knob { left:16px; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .cal-cell { aspect-ratio:1; display:grid; place-items:center; border-radius:10px; font-size:13px; border:1px solid var(--line); }
+  .legend { display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin:18px 0 6px; }
+  .legend span { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--sub); }
+  .swatch { width:12px; height:12px; border-radius:50%; }
+  /* BGM選択チップ */
+  .bgm-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .bgm-chip {
+    border:1px solid var(--line); background:var(--bg); color:var(--ink);
+    border-radius:12px; padding:9px 13px; font-size:13px; display:flex;
+    align-items:center; gap:7px; transition:all .15s;
+  }
+  .bgm-chip.on { border-color:var(--accent); background:#EEF2F6; }
+  .bgm-chip .ic { font-size:15px; }
+  .bgm-chip.disabled { opacity:.4; pointer-events:none; }
+  .bgm-chip.yt .ic { color:#C0392B; font-size:11px; }
+  .bgm-chip.add { border-style:dashed; color:var(--sub); }
+  .chip-x {
+    margin-left:4px; width:16px; height:16px; border-radius:50%;
+    display:inline-grid; place-items:center; font-size:12px;
+    background:rgba(0,0,0,.06); color:var(--sub);
+  }
+  .chip-x:active { background:rgba(0,0,0,.14); }
+  .preview-hint { font-size:11px; color:var(--sub); margin-top:8px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!-- YouTube BGM用の隠しプレイヤー（音だけ使用。画面外に固定） -->
+<div id="yt-host" style="position:fixed; left:-9999px; top:-9999px; width:200px; height:120px;" aria-hidden="true"></div>
+
+<script>
+// ============ データ（複数ルーティン） ============
+const ROUTINES = [
+  {
+    id:"morning", name:"朝のリセット", emoji:"🌅",
+    items:[
+      { name:"首まわりストレッチ", mode:"time", value:30, rest:5,  imgs:["開始姿勢","倒した姿勢"] },
+      { name:"肩甲骨まわし",       mode:"reps", value:10, rest:10, imgs:["前まわし","後ろまわし"] },
+      { name:"プランク",           mode:"time", value:20, rest:15, imgs:["キープ姿勢"] },
+      { name:"股関節ストレッチ",   mode:"time", value:40, rest:0,  imgs:["開始","深めた姿勢"] },
+    ],
+  },
+  {
+    id:"night", name:"夜のほぐし", emoji:"🌙",
+    items:[
+      { name:"深呼吸",             mode:"time", value:20, rest:5,  imgs:["吸う","吐く"] },
+      { name:"前屈ストレッチ",     mode:"time", value:30, rest:10, imgs:["開始","深めた姿勢"] },
+      { name:"腿裏のばし",         mode:"time", value:30, rest:0,  imgs:["左脚","右脚"] },
+    ],
+  },
+  {
+    id:"quick", name:"さっと筋トレ", emoji:"⚡",
+    items:[
+      { name:"スクワット",         mode:"reps", value:15, rest:15, imgs:["立ち","しゃがみ"] },
+      { name:"腕立て伏せ",         mode:"reps", value:10, rest:15, imgs:["開始","下げた姿勢"] },
+      { name:"プランク",           mode:"time", value:30, rest:0,  imgs:["キープ姿勢"] },
+    ],
+  },
+];
+
+const STATUS = {
+  full:{ label:"しっかりできた", color:"var(--full)" },
+  some:{ label:"少しできた",     color:"var(--some)" },
+  rest:{ label:"休息の日",       color:"var(--rest)" },
+};
+
+// BGMの種類（合成音で雰囲気を作り分け）
+const BGMS = [
+  { id:"warm",  name:"ぬくもり", ic:"🫧", hint:"やわらかい和音のパッド" },
+  { id:"zen",   name:"しずく",   ic:"💧", hint:"静かに落ちる澄んだ単音" },
+  { id:"waves", name:"なみ",     ic:"🌊", hint:"寄せては返す波のような音" },
+  { id:"night", name:"ほしぞら", ic:"🌌", hint:"低い持続音とまばらな鐘" },
+];
+
+// ============ 永続化（localStorage） ============
+const SKEY = "routine-timer-v1";
+let log = {};                                   // 'YYYY-MM-DD' -> 'full'|'some'
+let sound = { chime:true, bgm:true, bgmId:"warm" };
+let ytList = [];                                 // [{id, title, videoId}] ユーザー登録のYouTube BGM
+function loadState(){
+  try {
+    const raw = localStorage.getItem(SKEY);
+    if(raw){ const s=JSON.parse(raw); log=s.log||{}; sound={...sound, ...(s.sound||{})}; ytList=s.ytList||[]; }
+  } catch(e){ /* プライベートモード等では保存なしで続行 */ }
+}
+function saveState(){
+  try { localStorage.setItem(SKEY, JSON.stringify({ log, sound, ytList })); } catch(e){}
+}
+
+// YouTubeのURL/IDから videoId を取り出す
+function parseYouTubeId(input){
+  if(!input) return null;
+  const s=input.trim();
+  // 生のID（11文字）
+  if(/^[\w-]{11}$/.test(s)) return s;
+  try {
+    const u=new URL(s);
+    if(u.hostname.includes("youtu.be")) return u.pathname.slice(1,12) || null;
+    if(u.hostname.includes("youtube.com")){
+      const v=u.searchParams.get("v");
+      if(v) return v;
+      const m=u.pathname.match(/\/(embed|shorts|live)\/([\w-]{11})/);
+      if(m) return m[2];
+    }
+  } catch(e){ /* URLでない */ }
+  return null;
+}
+
+let state = { screen:"home", routineId:null };
+const app = document.getElementById("app");
+const todayKey = () => {
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
+const getRoutine = () => ROUTINES.find(r=>r.id===state.routineId);
+
+// ============ 合成音エンジン（Web Audio） ============
+let _ctx=null;
+function ctx(){ if(!_ctx) _ctx=new (window.AudioContext||window.webkitAudioContext)(); if(_ctx.state==="suspended")_ctx.resume(); return _ctx; }
+
+// 区切りの通知音：柔らかい2音チャイム
+function playChime(){
+  const c=ctx();
+  [660,880].forEach((f,i)=>{
+    const o=c.createOscillator(), g=c.createGain();
+    o.type="sine"; o.frequency.value=f;
+    const t=c.currentTime+i*0.14;
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(0.25,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.5);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t+0.5);
+  });
+}
+
+// --- BGM：id ごとに異なる作りの持続音。stop() を持つオブジェクトを返す ---
+function makeBgm(id){
+  const c=ctx();
+  const master=c.createGain(); master.gain.value=0; master.connect(c.destination);
+  const nodes=[]; const timers=[];
+  const stopFns=[];
+
+  function fadeInTo(v){ master.gain.linearRampToValueAtTime(v, c.currentTime+1.2); }
+
+  if(id==="warm"){
+    // 暖かいパッド和音＋ゆらぎ
+    [220,277.18,329.63].forEach(f=>{
+      const o=c.createOscillator(), g=c.createGain();
+      o.type="sine"; o.frequency.value=f; g.gain.value=0.12;
+      const lfo=c.createOscillator(), lg=c.createGain();
+      lfo.frequency.value=0.08; lg.gain.value=3; lfo.connect(lg).connect(o.frequency); lfo.start();
+      o.connect(g).connect(master); o.start();
+      nodes.push(o,lfo);
+    });
+    fadeInTo(0.5);
+  }
+  else if(id==="zen"){
+    // 静かな持続音を薄く敷き、澄んだ単音を不規則に落とす
+    const drone=c.createOscillator(), dg=c.createGain();
+    drone.type="sine"; drone.frequency.value=164.81; dg.gain.value=0.05;
+    drone.connect(dg).connect(master); drone.start(); nodes.push(drone);
+    const notes=[523.25,587.33,659.25,783.99,880]; // 落ち着いたペンタトニック
+    const drop=()=>{
+      const f=notes[Math.floor(Math.random()*notes.length)];
+      const o=c.createOscillator(), g=c.createGain();
+      o.type="sine"; o.frequency.value=f;
+      const t=c.currentTime;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(0.18,t+0.03);
+      g.gain.exponentialRampToValueAtTime(0.001,t+2.2);
+      o.connect(g).connect(master); o.start(t); o.stop(t+2.3);
+      timers.push(setTimeout(drop, 1800+Math.random()*2600));
+    };
+    timers.push(setTimeout(drop, 600));
+    fadeInTo(0.7);
+  }
+  else if(id==="waves"){
+    // ホワイトノイズをローパス＋ゆっくりした音量の満ち引きで波に
+    const buf=c.createBuffer(1, c.sampleRate*2, c.sampleRate);
+    const data=buf.getChannelData(0);
+    for(let i=0;i<data.length;i++) data[i]=Math.random()*2-1;
+    const src=c.createBufferSource(); src.buffer=buf; src.loop=true;
+    const lp=c.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=500;
+    const swell=c.createGain(); swell.gain.value=0.15;
+    // 波の満ち引き（音量LFO）
+    const lfo=c.createOscillator(), lg=c.createGain();
+    lfo.type="sine"; lfo.frequency.value=0.12; lg.gain.value=0.12;
+    lfo.connect(lg).connect(swell.gain); lfo.start();
+    src.connect(lp).connect(swell).connect(master); src.start();
+    nodes.push(lfo); stopFns.push(()=>{try{src.stop()}catch(e){}});
+    fadeInTo(0.8);
+  }
+  else if(id==="night"){
+    // 低い持続音＋まばらに澄んだ鐘
+    const drone=c.createOscillator(), dg=c.createGain();
+    drone.type="sine"; drone.frequency.value=110; dg.gain.value=0.08;
+    drone.connect(dg).connect(master); drone.start(); nodes.push(drone);
+    const drone2=c.createOscillator(), dg2=c.createGain();
+    drone2.type="sine"; drone2.frequency.value=164.81; dg2.gain.value=0.05;
+    drone2.connect(dg2).connect(master); drone2.start(); nodes.push(drone2);
+    const bells=[987.77,1174.66,1318.51];
+    const ring=()=>{
+      const f=bells[Math.floor(Math.random()*bells.length)];
+      const o=c.createOscillator(), g=c.createGain();
+      o.type="triangle"; o.frequency.value=f;
+      const t=c.currentTime;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(0.1,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001,t+3);
+      o.connect(g).connect(master); o.start(t); o.stop(t+3);
+      timers.push(setTimeout(ring, 3500+Math.random()*4000));
+    };
+    timers.push(setTimeout(ring, 1200));
+    fadeInTo(0.6);
+  }
+
+  return {
+    stop(){
+      master.gain.linearRampToValueAtTime(0, c.currentTime+0.8);
+      timers.forEach(clearTimeout);
+      setTimeout(()=>{
+        nodes.forEach(n=>{try{n.stop()}catch(e){}});
+        stopFns.forEach(fn=>fn());
+      }, 900);
+    }
+  };
+}
+
+// ---- YouTube IFrame API（音だけBGMとして利用。遅延読み込み） ----
+let ytPlayer=null, ytReady=false, ytPending=null;
+function loadYouTubeApi(){
+  if(window.YT && window.YT.Player){ ytReady=true; return; }
+  if(document.getElementById("yt-api")) return;
+  const tag=document.createElement("script");
+  tag.id="yt-api"; tag.src="https://www.youtube.com/iframe_api";
+  document.head.appendChild(tag);
+}
+window.onYouTubeIframeAPIReady=function(){
+  ytReady=true;
+  ytPlayer=new YT.Player("yt-host",{
+    height:"120", width:"200",
+    playerVars:{ autoplay:0, controls:0, disablekb:1, loop:1, playsinline:1 },
+    events:{
+      onReady:()=>{ if(ytPending){ const v=ytPending; ytPending=null; playYt(v); } },
+      onStateChange:(e)=>{ if(e.data===YT.PlayerState.ENDED && ytPlayer){ ytPlayer.seekTo(0); ytPlayer.playVideo(); } }
+    }
+  });
+};
+function playYt(videoId){
+  if(!ytReady || !ytPlayer || !ytPlayer.loadVideoById){ ytPending=videoId; loadYouTubeApi(); return; }
+  ytPlayer.loadVideoById({ videoId });
+  ytPlayer.playVideo();
+}
+function stopYt(){ if(ytPlayer && ytPlayer.stopVideo){ try{ ytPlayer.stopVideo(); }catch(e){} } ytPending=null; }
+
+// ---- BGM統一制御：合成音(id) と YouTube(yt:<videoId>) を同じ入口で ----
+let bgm=null;
+function isYt(id){ return typeof id==="string" && id.startsWith("yt:"); }
+function startBgm(){
+  if(isYt(sound.bgmId)){ playYt(sound.bgmId.slice(3)); }
+  else { bgm=makeBgm(sound.bgmId); }
+}
+function stopBgm(){ if(bgm){ bgm.stop(); bgm=null; } stopYt(); }
+
+// プレビュー再生（ホームで試聴）：合成音は数秒で自動停止、YouTubeは次の操作まで
+let preview=null, previewTimer=null;
+function previewBgm(id){
+  stopPreview();
+  sound.bgmId=id; saveState();
+  if(isYt(id)){ playYt(id.slice(3)); }        // 試聴＝そのまま再生（別BGM選択やホーム操作で停止）
+  else { preview=makeBgm(id); previewTimer=setTimeout(stopPreview, 6000); }
+  render();
+}
+function stopPreview(){
+  if(preview){ preview.stop(); preview=null; }
+  if(previewTimer){ clearTimeout(previewTimer); previewTimer=null; }
+  stopYt();
+}
+
+// ============ 画面描画 ============
+function render(){
+  if(state.screen==="home") renderHome();
+  else if(state.screen==="run") renderRun();
+  else if(state.screen==="done") renderDone();
+  else if(state.screen==="calendar") renderCalendar();
+}
+
+function headerHTML(active){
+  return `<div class="header">
+    <div class="brand">ROUTINE</div>
+    <button class="ghost" style="opacity:${active==="calendar"?1:.6}" onclick="go('calendar')">記録を見る</button>
+  </div>`;
+}
+
+// ---- ホーム：ルーティン選択＋音設定 ----
+function renderHome(){
+  const picks = ROUTINES.map(r=>{
+    const total=r.items.reduce((s,i)=>s+(i.mode==="time"?i.value:30)+i.rest,0);
+    return `<button class="routine-pick" onclick="start('${r.id}')">
+      <span class="pick-emoji">${r.emoji}</span>
+      <span style="flex:1">
+        <div style="font-size:17px; font-weight:700">${r.name}</div>
+        <div class="muted" style="font-size:12px; margin-top:2px">${r.items.length}種目 ・ 約${Math.round(total/60)}分</div>
+      </span>
+      <span class="muted" style="font-size:20px">›</span>
+    </button>`;
+  }).join("");
+
+  const dis = sound.bgm?"":"disabled";
+  const chips = BGMS.map(b=>`
+    <button class="bgm-chip ${sound.bgmId===b.id?"on":""} ${dis}" onclick="previewBgm('${b.id}')">
+      <span class="ic">${b.ic}</span>${b.name}
+    </button>`).join("");
+
+  // 登録済みYouTube BGM
+  const ytChips = ytList.map(y=>{
+    const sel = sound.bgmId===("yt:"+y.videoId);
+    return `<button class="bgm-chip yt ${sel?"on":""} ${dis}" onclick="previewBgm('yt:${y.videoId}')">
+      <span class="ic">▶</span>${escapeHtml(y.title)}
+      <span class="chip-x" onclick="removeYt(event,'${y.id}')">×</span>
+    </button>`;
+  }).join("");
+  const addChip = `<button class="bgm-chip add ${dis}" onclick="openAddYt()"><span class="ic">＋</span>YouTubeから追加</button>`;
+
+  app.innerHTML = headerHTML("home") + `<div class="fade">
+    <p class="muted" style="font-size:15px; margin:0 0 20px">今日も、できる範囲で。</p>
+    <p style="font-size:13px; font-weight:700; letter-spacing:1px; margin:0 0 12px">ルーティンを選ぶ</p>
+    ${picks}
+
+    <div class="card" style="margin-top:16px">
+      <div style="display:flex; gap:10px">
+        ${toggleHTML("chime","区切りの音","種目や休憩の終わりに鳴らす")}
+        ${toggleHTML("bgm","ヒーリングBGM","実行中ずっと流す")}
+      </div>
+      <div class="bgm-list">${chips}${ytChips}${addChip}</div>
+      <div class="preview-hint">タップで試聴・選んだものが実行中に流れます。YouTubeは音だけ裏で流れます。</div>
+    </div>
+
+    <p class="muted" style="text-align:center; font-size:12px; margin-top:14px">※ 種目や順番の編集画面は今後の段階で</p>
+  </div>`;
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function toggleHTML(key,label,hint){
+  return `<button onclick="toggleSound('${key}')" style="flex:1; background:transparent; border:none; text-align:left; padding:0">
+    <div class="toggle-row">
+      <span class="switch ${sound[key]?"on":""}"><span class="knob"></span></span>
+      <span style="font-size:14px; font-weight:600">${label}</span>
+    </div>
+    <div class="muted" style="font-size:11px; padding-left:42px">${hint}</div>
+  </button>`;
+}
+function toggleSound(k){ sound[k]=!sound[k]; if(k==="bgm"&&!sound[k]) stopPreview(); saveState(); render(); }
+
+// ---- YouTube BGM 追加 / 削除 ----
+function openAddYt(){
+  if(!sound.bgm) return;
+  stopPreview();
+  const url = prompt("ヒーリングBGMにしたいYouTubeのURL（または動画ID）を貼り付けてください");
+  if(!url) return;
+  const videoId = parseYouTubeId(url);
+  if(!videoId){ alert("YouTubeのURLが読み取れませんでした。動画ページのURLを貼り付けてください。"); return; }
+  if(ytList.some(y=>y.videoId===videoId)){ alert("この動画はすでに追加されています。"); sound.bgmId="yt:"+videoId; saveState(); render(); return; }
+  const title = prompt("名前をつけてください（例：雨の音、波の音）", "マイBGM") || "マイBGM";
+  const entry = { id:"yt"+Date.now(), title:title.slice(0,20), videoId };
+  ytList.push(entry);
+  sound.bgmId="yt:"+videoId;        // 追加したものを選択状態に
+  saveState(); render();
+  previewBgm("yt:"+videoId);        // そのまま試聴
+}
+function removeYt(ev, id){
+  ev.stopPropagation();
+  const y=ytList.find(y=>y.id===id);
+  if(!y) return;
+  if(!confirm(`「${y.title}」を削除しますか？`)) return;
+  ytList=ytList.filter(x=>x.id!==id);
+  if(sound.bgmId==="yt:"+y.videoId){ sound.bgmId="warm"; stopPreview(); }
+  saveState(); render();
+}
+
+// ---- 実行画面 ----
+let run = null;
+function start(id){
+  stopPreview();
+  state.routineId=id; state.screen="run";
+  const r=getRoutine();
+  const steps=[];
+  r.items.forEach(it=>{ steps.push({type:"ex",data:it}); if(it.rest>0) steps.push({type:"rest",secs:it.rest}); });
+  run={ steps, idx:0, remain:null, imgIdx:0, timer:null };
+  if(sound.bgm) startBgm();
+  render(); enterStep();
+}
+function go(s){ if(run&&run.timer) clearInterval(run.timer); if(s!=="run") stopBgm(); state.screen=s; render(); }
+
+function enterStep(){
+  clearInterval(run.timer);
+  const step=run.steps[run.idx];
+  const timed = step.type==="rest" || (step.type==="ex"&&step.data.mode==="time");
+  if(!timed){ run.remain=null; render(); return; }
+  run.remain = step.type==="rest" ? step.secs : step.data.value;
+  render();
+  run.timer=setInterval(()=>{
+    run.remain--;
+    if(run.remain<=0){ clearInterval(run.timer); setTimeout(()=>next(true),200); }
+    updateTimerText();
+  },1000);
+}
+function updateTimerText(){ const el=document.getElementById("timer"); if(el) el.textContent=Math.max(run.remain,0); }
+function next(chime){
+  if(chime && sound.chime) playChime();
+  if(run.idx+1>=run.steps.length){ stopBgm(); state.screen="done"; render(); return; }
+  run.idx++; run.imgIdx=0; enterStep();
+}
+function setImg(i){ run.imgIdx=i; render(); }
+
+function renderRun(){
+  const step=run.steps[run.idx];
+  const progress=Math.round((run.idx/run.steps.length)*100);
+  let body;
+  if(step.type==="rest"){
+    body=`<div class="card" style="text-align:center; padding:48px 24px">
+      <div class="muted" style="letter-spacing:2px; font-size:13px; margin-bottom:16px">ひと休み</div>
+      <div class="big-num num" id="timer">${run.remain}</div>
+      <div class="muted" style="font-size:13px; margin-top:12px">次に備えて呼吸を整えて</div>
+    </div>`;
+  } else {
+    const d=step.data;
+    const dots = d.imgs.length>1 ? `<div class="dots">${d.imgs.map((_,i)=>`<button class="dot ${i===run.imgIdx?"on":""}" onclick="setImg(${i})"></button>`).join("")}</div>` : "";
+    const main = d.mode==="time"
+      ? `<div style="text-align:center; margin:20px 0 8px"><div class="big-num num" id="timer">${run.remain}</div><div class="muted" style="font-size:13px">秒 ・ 自動で次へ</div></div>`
+      : `<div style="text-align:center; margin:20px 0"><div style="font-size:40px; font-weight:700">${d.value}<span style="font-size:18px">回</span></div><button class="primary" style="margin-top:16px" onclick="next(true)">できた → 次へ</button></div>`;
+    body=`<div class="card">
+      <div class="img-frame">
+        <span style="font-size:14px">🖼 ${d.imgs[run.imgIdx]}</span>
+        <span class="muted" style="position:absolute; bottom:8px; font-size:11px">動作イメージ（枠のみ）</span>
+      </div>
+      ${dots}
+      <div style="font-size:22px; font-weight:700; text-align:center">${d.name}</div>
+      ${main}
+    </div>`;
+  }
+  app.innerHTML = `<div class="fade">
+    <div class="progress-wrap" style="margin-top:28px"><div class="progress-bar" style="width:${progress}%"></div></div>
+    ${body}
+    <div style="display:flex; gap:10px; margin-top:20px">
+      <button class="ghost" style="flex:1; padding:12px" onclick="go('home')">やめる</button>
+      <button class="ghost" style="flex:1; padding:12px" onclick="next(false)">スキップ</button>
+    </div>
+  </div>`;
+}
+
+// ---- 完了：2択記録 ----
+function renderDone(){
+  const btns = ["full","some"].map(k=>`
+    <button class="card" style="width:100%; text-align:left; display:flex; align-items:center; gap:14px; border:none" onclick="save('${k}')">
+      <span class="swatch" style="width:16px; height:16px; background:${STATUS[k].color}"></span>
+      <span style="font-size:16px; font-weight:600">${STATUS[k].label}</span>
+    </button>`).join("");
+  app.innerHTML = `<div class="fade" style="text-align:center; padding-top:40px">
+    <div style="font-size:40px; margin-bottom:8px">🌱</div>
+    <div style="font-size:22px; font-weight:700">おつかれさまでした</div>
+    <p class="muted" style="font-size:14px; margin:10px 0 28px">今日はどんな感じでしたか？<br>どちらを選んでも大丈夫です。</p>
+    ${btns}
+    <p class="muted" style="font-size:12px; margin-top:8px">開かなかった日は、自然と「休息の日」として残ります。</p>
+  </div>`;
+}
+function save(s){ log[todayKey()]=s; saveState(); go("calendar"); }
+
+// ---- カレンダー ----
+function renderCalendar(){
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth();
+  const first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+  const cells=[...Array(first).fill(null), ...Array.from({length:days},(_,i)=>i+1)];
+  const grid = cells.map(d=>{
+    if(!d) return `<div></div>`;
+    const key=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const st=log[key], isToday=d===now.getDate(), isPast=d<now.getDate();
+    const bg = st ? STATUS[st].color : (isPast ? "var(--rest)" : "transparent");
+    const filled = !!st || isPast;
+    return `<div class="cal-cell" style="
+      background:${bg}; opacity:${st?1:(isPast?.5:1)};
+      border:${isToday?"1.5px solid var(--accent)":"1px solid var(--line)"};
+      color:${filled?"#fff":"var(--sub)"}; font-weight:${st?700:400}">${d}</div>`;
+  }).join("");
+  const legend = Object.values(STATUS).map(v=>`<span><span class="swatch" style="background:${v.color}"></span>${v.label}</span>`).join("");
+  app.innerHTML = headerHTML("calendar") + `<div class="fade">
+    <div style="font-size:20px; font-weight:700; margin-bottom:4px">${y}年 ${m+1}月</div>
+    <p class="muted" style="font-size:13px; margin:0 0 20px">続いていること、それ自体がいいこと。</p>
+    <div class="card">
+      <div class="cal-grid" style="margin-bottom:8px">${["日","月","火","水","木","金","土"].map(d=>`<div style="text-align:center; font-size:11px; color:var(--sub)">${d}</div>`).join("")}</div>
+      <div class="cal-grid">${grid}</div>
+    </div>
+    <div class="legend">${legend}</div>
+    <p class="muted" style="text-align:center; font-size:11px; margin:0 0 24px">休息の日は選ぶものではなく、開かなかった日にそっと残ります。</p>
+    <button class="primary" onclick="go('home')">ホームへ</button>
+  </div>`;
+}
+
+loadState();
+render();
+
+// ---- Service Worker 登録（オフライン動作・ホーム画面追加のため） ----
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => { /* 登録失敗時も通常動作は継続 */ });
+  });
+}
+</script>
+</body>
+</html>

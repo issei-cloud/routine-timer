@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#6E8AA6"/>
+  <!-- 芽：続けることで育つ習慣。葉を主役に、茎は短く下に -->
+  <g transform="translate(256,268)">
+    <!-- 茎 -->
+    <path d="M0,70 L0,0" stroke="#FBFAF6" stroke-width="16" fill="none" stroke-linecap="round"/>
+    <!-- 左葉（緑） -->
+    <path d="M-4,8 C-70,-4 -110,-58 -96,-120 C-30,-116 6,-56 -4,8 Z" fill="#7FA98B"/>
+    <!-- 右葉（生成り） -->
+    <path d="M4,20 C66,2 104,-44 92,-104 C34,-100 0,-44 4,20 Z" fill="#FBFAF6"/>
+  </g>
+</svg>

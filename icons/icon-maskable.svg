@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#6E8AA6"/>
+  <!-- maskable用：要素を中央60%程度に収め、OS側で丸くトリミングされても欠けないように -->
+  <g transform="translate(256,250) scale(0.72)">
+    <path d="M0,70 L0,0" stroke="#FBFAF6" stroke-width="16" fill="none" stroke-linecap="round"/>
+    <path d="M-4,8 C-70,-4 -110,-58 -96,-120 C-30,-116 6,-56 -4,8 Z" fill="#7FA98B"/>
+    <path d="M4,20 C66,2 104,-44 92,-104 C34,-100 0,-44 4,20 Z" fill="#FBFAF6"/>
+  </g>
+</svg>

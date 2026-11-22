@@ -1,8 +1,10 @@
 // ルーティンタイマー Service Worker
-// アプリ本体をキャッシュし、オフラインでも起動できるようにする。
-// YouTube等の外部リソースはキャッシュせず、常にネットワークへ。
+// 方針：ネットワーク優先（更新を取りこぼさない）。
+//   - オンライン時は常に最新を取得し、キャッシュも更新
+//   - オフライン時だけキャッシュから返す（オフライン起動を担保）
+//   - YouTube等の外部リソースはキャッシュせず素通し
 
-const CACHE = "routine-timer-v1";
+const CACHE = "routine-timer-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -14,16 +16,15 @@ const ASSETS = [
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
-  self.skipWaiting();
+  self.skipWaiting();   // 新しいSWをすぐ有効化
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())   // 既存タブもすぐ新SWの管理下へ
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (e) => {
@@ -31,8 +32,14 @@ self.addEventListener("fetch", (e) => {
   // 自分のオリジンのGETだけを扱う。YouTube等の外部は素通し。
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
 
-  // アプリシェルはキャッシュ優先、無ければネットワーク
+  // ネットワーク優先：取れたらキャッシュを更新して返す。失敗時のみキャッシュ。
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request))
+    fetch(e.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return res;
+      })
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("./index.html")))
   );
 });

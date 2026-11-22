@@ -791,9 +791,29 @@ loadState();
 render();
 
 // ---- Service Worker 登録（オフライン動作・ホーム画面追加のため） ----
+// 新しい版を見つけたら自動で切り替え、一度だけ再読込して最新を表示する。
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => { /* 登録失敗時も通常動作は継続 */ });
+    navigator.serviceWorker.register("sw.js").then((reg) => {
+      reg.addEventListener("updatefound", () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", () => {
+          // 既存SWがある状態で新SWが入った＝更新。即時有効化を促す。
+          if (sw.state === "installed" && navigator.serviceWorker.controller) {
+            sw.postMessage && reg.waiting && reg.waiting.postMessage?.({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    }).catch(() => { /* 登録失敗時も通常動作は継続 */ });
+
+    // コントローラが切り替わったら一度だけリロードして新版を表示
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshed) return;
+      refreshed = true;
+      window.location.reload();
+    });
   });
 }
 </script>

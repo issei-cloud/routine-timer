@@ -109,6 +109,9 @@
   .thumb .x { position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:#fff; border:1px solid var(--line); font-size:12px; color:var(--sub); display:grid; place-items:center; }
   .thumb-add { width:62px; height:62px; border-radius:10px; border:1px dashed var(--line); background:transparent; color:var(--sub); font-size:22px; }
   .thumb-label { font-size:9px; color:var(--sub); position:absolute; bottom:2px; max-width:58px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; background:rgba(255,255,255,.7); border-radius:4px; padding:0 2px; }
+  .drag-handle { font-size:18px; color:var(--sub); cursor:grab; width:22px; text-align:center; touch-action:none; user-select:none; line-height:1; }
+  .ex-card.dragging { opacity:.5; }
+  .ex-card.drag-over { border-color:var(--accent); box-shadow:0 0 0 2px rgba(110,138,166,.25); }
 </style>
 </head>
 <body>
@@ -651,9 +654,10 @@ function renderEdit(){
             <input class="field" style="text-align:center" type="number" min="1" value="${it.value}" onchange="setField(${idx},'value',this.value)">
             <button class="mini" onclick="bump(${idx},'value',1)">＋</button>
           </div></div>`;
-    return `<div class="ex-card">
+    return `<div class="ex-card" data-idx="${idx}">
       <div class="ex-head">
-        <span class="muted" style="font-size:12px; width:20px">${idx+1}</span>
+        <span class="drag-handle" onpointerdown="dragStart(event,${idx})" title="ドラッグで並べ替え">⠿</span>
+        <span class="muted" style="font-size:12px; width:18px">${idx+1}</span>
         <input class="field" value="${escapeHtml(it.name)}" placeholder="種目名" onchange="setField(${idx},'name',this.value)">
       </div>
 
@@ -706,7 +710,17 @@ function renderEdit(){
 
     <button class="primary" onclick="saveEdit()">保存してもどる</button>
     <button class="ghost" style="width:100%; padding:12px; margin-top:10px" onclick="cancelEdit()">変更を破棄</button>
+    ${ROUTINES.some(r=>r.id===e.id) ? `<button class="ghost" style="width:100%; padding:12px; margin-top:18px; color:#B4524B; border-color:#E6C9C5" onclick="deleteRoutine()">このルーティンを削除</button>` : ""}
   </div>`;
+}
+
+// ルーティンごと削除
+function deleteRoutine(){
+  if(ROUTINES.length<=1){ alert("ルーティンは最低1つ必要です。"); return; }
+  if(!confirm(`「${editing.name}」を削除しますか？\nこの操作は取り消せません。`)) return;
+  ROUTINES = ROUTINES.filter(r=>r.id!==editing.id);
+  saveState();
+  editing=null; state.screen="home"; render();
 }
 
 // 編集操作（editing を書き換えて再描画。保存時にROUTINESへ反映）
@@ -733,6 +747,44 @@ function moveEx(idx,dir){
   if(j<0||j>=a.length) return;
   [a[idx],a[j]]=[a[j],a[idx]];
   render();
+}
+
+// ---- ドラッグ（スライド）で種目を並べ替え。タッチ/マウス両対応 ----
+let drag = null;  // { fromIdx, cards, overIdx }
+function dragStart(ev, idx){
+  ev.preventDefault();
+  const cards = Array.from(document.querySelectorAll(".ex-card"));
+  drag = { fromIdx:idx, overIdx:idx, cards };
+  cards[idx].classList.add("dragging");
+  const onMove = (e)=>{
+    const y = e.clientY;
+    // 指のY座標より中心が上にあるカードの数を数える＝その位置に差し込む
+    let over = 0;
+    cards.forEach((c)=>{
+      const r=c.getBoundingClientRect();
+      if(y > r.top + r.height/2) over++;
+    });
+    over = Math.min(Math.max(over,0), cards.length-1);
+    if(over!==drag.overIdx){
+      cards.forEach(c=>c.classList.remove("drag-over"));
+      if(over!==drag.fromIdx) cards[over].classList.add("drag-over");
+      drag.overIdx = over;
+    }
+  };
+  const onUp = ()=>{
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    const {fromIdx, overIdx} = drag;
+    drag = null;
+    if(fromIdx!==overIdx){
+      const a=editing.items;
+      const [moved]=a.splice(fromIdx,1);
+      a.splice(overIdx,0,moved);
+    }
+    render();
+  };
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
 }
 function removeEx(idx){
   if(editing.items.length<=1){ alert("種目は最低1つ必要です。"); return; }

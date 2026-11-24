@@ -110,6 +110,9 @@
   .thumb-add { width:62px; height:62px; border-radius:10px; border:1px dashed var(--line); background:transparent; color:var(--sub); font-size:22px; }
   .thumb-label { font-size:9px; color:var(--sub); position:absolute; bottom:2px; max-width:58px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; background:rgba(255,255,255,.7); border-radius:4px; padding:0 2px; }
   .drag-handle { font-size:18px; color:var(--sub); cursor:grab; width:22px; text-align:center; touch-action:none; user-select:none; line-height:1; }
+  .sound-disabled > div:not(:first-child), .sound-disabled .bgm-list, .sound-disabled .preview-hint { opacity:.35; pointer-events:none; }
+  #flash { position:fixed; inset:0; background:var(--accent); opacity:0; pointer-events:none; z-index:9999; transition:opacity .9s ease; }
+  #flash.flash-on { opacity:.55; transition:none; }
   .up-next { background:#EEF2F6; border-radius:12px; padding:9px 14px; font-size:13px; color:var(--sub); margin-bottom:14px; text-align:center; }
   .up-next strong { color:var(--ink); }
   .ex-row { display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
@@ -177,7 +180,7 @@ const BGMS = [
 // ============ 永続化（localStorage） ============
 const SKEY = "routine-timer-v1";
 let log = {};                                   // 'YYYY-MM-DD' -> 'full'|'some'
-let sound = { chime:true, bgm:true, bgmId:"warm" };
+let sound = { chime:true, bgm:true, bgmId:"warm", musicMode:false };
 let ytList = [];                                 // [{id, title, videoId}] ユーザー登録のYouTube BGM
 function loadState(){
   try {
@@ -259,6 +262,26 @@ function playChime(){
     g.gain.exponentialRampToValueAtTime(0.001,t+0.45);
     o.connect(g).connect(c.destination); o.start(t); o.stop(t+0.5);
   });
+}
+
+// 区切りの合図：音楽モードなら音を出さず、画面フラッシュ＋バイブで知らせる。
+// 通常モードなら（区切り音がオンのとき）チャイムを鳴らす。
+function cueBreak(){
+  if(sound.musicMode){
+    flashScreen();
+    try { if(navigator.vibrate) navigator.vibrate([120,60,120]); } catch(e){}
+  } else if(sound.chime){
+    playChime();
+  }
+}
+// 画面を一瞬光らせる（オーバーレイをフェードで重ねる）
+function flashScreen(){
+  let f=document.getElementById("flash");
+  if(!f){ f=document.createElement("div"); f.id="flash"; document.body.appendChild(f); }
+  f.className="flash-on";
+  // 強制的にリフロー後にフェードアウト
+  void f.offsetWidth;
+  f.className="";
 }
 
 // --- BGM：id ごとに異なる作りの持続音。stop() を持つオブジェクトを返す ---
@@ -478,6 +501,11 @@ function renderHome(){
     ${picks}
 
     <div class="card" style="margin-top:16px">
+      ${toggleHTML("musicMode","自分の音楽と使う","アプリは音を出さず、区切りは画面の点滅と振動で知らせます")}
+    </div>
+
+    <div class="card ${sound.musicMode?"sound-disabled":""}" style="margin-top:12px">
+      ${sound.musicMode?`<div class="muted" style="font-size:12px; margin-bottom:10px">音楽アプリ（Apple Music など）を先に再生してから、ルーティンを始めてください。アプリの音はオフになっています。</div>`:""}
       <div style="display:flex; gap:10px">
         ${toggleHTML("chime","区切りの音","種目や休憩の終わりに鳴らす")}
         ${toggleHTML("bgm","ヒーリングBGM","実行中ずっと流す")}
@@ -486,7 +514,7 @@ function renderHome(){
       <div class="preview-hint">タップで試聴・選んだものが実行中に流れます。YouTubeは音だけ裏で流れます。</div>
     </div>
 
-    <p class="muted" style="text-align:center; font-size:12px; margin-top:14px">※ 種目や順番の編集画面は今後の段階で</p>
+    <p class="muted" style="text-align:center; font-size:12px; margin-top:14px">※ 種目や順番の編集はルーティンの「編集」から</p>
   </div>`;
 }
 
@@ -501,7 +529,12 @@ function toggleHTML(key,label,hint){
     <div class="muted" style="font-size:11px; padding-left:42px">${hint}</div>
   </button>`;
 }
-function toggleSound(k){ sound[k]=!sound[k]; if(k==="bgm"&&!sound[k]) stopPreview(); saveState(); render(); }
+function toggleSound(k){
+  sound[k]=!sound[k];
+  if(k==="bgm"&&!sound[k]) stopPreview();
+  if(k==="musicMode"&&sound[k]) stopPreview();   // 音楽モードonで試聴中の音を止める
+  saveState(); render();
+}
 
 // ---- YouTube BGM 追加 / 削除 ----
 function openAddYt(){
@@ -540,7 +573,8 @@ function buildSteps(r){
 }
 function start(id, resume){
   stopPreview();
-  unlockAudio();                      // 実行開始の操作で音を確実にアンロック
+  // 音楽モード中はアプリの音を一切出さない（Apple Music等を止めないため）
+  if(!sound.musicMode) unlockAudio();
   state.routineId=id; state.screen="run";
   const r=getRoutine();
   const steps=buildSteps(r);
@@ -549,7 +583,7 @@ function start(id, resume){
   } else {
     run={ steps, idx:0, remain:null, imgIdx:0, timer:null, paused:false };
   }
-  if(sound.bgm && !run.paused) startBgm();
+  if(sound.bgm && !sound.musicMode && !run.paused) startBgm();
   render();
   if(run.paused) renderRun();         // 復帰時は一時停止状態で表示（ユーザーが再開を押す）
   else enterStep();
@@ -608,7 +642,7 @@ function togglePause(){
   if(!run) return;
   run.paused=!run.paused;
   if(run.paused){ stopBgm(); }
-  else { unlockAudio(); if(sound.bgm) startBgm();
+  else { if(!sound.musicMode){ unlockAudio(); if(sound.bgm) startBgm(); }
     const step=run.steps[run.idx];
     const timed = step.type==="rest" || (step.type==="ex"&&step.data.mode==="time");
     if(timed && (run.timer==null)) tick();
@@ -616,8 +650,8 @@ function togglePause(){
   renderRun();
 }
 
-function next(chime){
-  if(chime && sound.chime) playChime();
+function next(cue){
+  if(cue) cueBreak();   // 区切りの合図（音楽モードならフラッシュ＋バイブ、通常ならチャイム）
   if(run.idx+1>=run.steps.length){ stopBgm(); clearRunProgress(); state.screen="done"; render(); return; }
   run.idx++; run.imgIdx=0; run.remain=null; saveRunProgress(); enterStep();
 }
@@ -692,7 +726,7 @@ function renderRun(){
 
   app.innerHTML = `<div class="fade">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:24px; margin-bottom:8px">
-      <span class="muted" style="font-size:12px">種目 ${curExNo} / ${totalEx}</span>
+      <span class="muted" style="font-size:12px">種目 ${curExNo} / ${totalEx}${sound.musicMode?" ・ ♪ 音楽と一緒":""}</span>
       ${paused?`<span style="font-size:12px; color:var(--accent); font-weight:700">一時停止中</span>`:""}
     </div>
     <div class="progress-wrap"><div class="progress-bar" style="width:${progress}%"></div></div>

@@ -110,6 +110,11 @@
   .thumb-add { width:62px; height:62px; border-radius:10px; border:1px dashed var(--line); background:transparent; color:var(--sub); font-size:22px; }
   .thumb-label { font-size:9px; color:var(--sub); position:absolute; bottom:2px; max-width:58px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; background:rgba(255,255,255,.7); border-radius:4px; padding:0 2px; }
   .drag-handle { font-size:18px; color:var(--sub); cursor:grab; width:22px; text-align:center; touch-action:none; user-select:none; line-height:1; }
+  .up-next { background:#EEF2F6; border-radius:12px; padding:9px 14px; font-size:13px; color:var(--sub); margin-bottom:14px; text-align:center; }
+  .up-next strong { color:var(--ink); }
+  .ex-row { display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+  .ex-row.dragging { opacity:.5; }
+  .ex-row.drag-over { border-color:var(--accent); box-shadow:0 0 0 2px rgba(110,138,166,.25); }
   .ex-card.dragging { opacity:.5; }
   .ex-card.drag-over { border-color:var(--accent); box-shadow:0 0 0 2px rgba(110,138,166,.25); }
 </style>
@@ -226,16 +231,32 @@ const getRoutine = () => ROUTINES.find(r=>r.id===state.routineId);
 let _ctx=null;
 function ctx(){ if(!_ctx) _ctx=new (window.AudioContext||window.webkitAudioContext)(); if(_ctx.state==="suspended")_ctx.resume(); return _ctx; }
 
-// 区切りの通知音：柔らかい2音チャイム
+// ユーザー操作のたびにAudioContextを起こしておく（モバイルの自動再生制限対策）。
+// これを実行開始ボタン等で呼んでおくと、以降の自動チャイムが確実に鳴る。
+function unlockAudio(){
+  const c=ctx();
+  if(c.state==="suspended") c.resume();
+  // 無音の極短サンプルを一度鳴らしてアンロックを確定させる
+  try {
+    const o=c.createOscillator(), g=c.createGain();
+    g.gain.value=0; o.connect(g).connect(c.destination);
+    o.start(); o.stop(c.currentTime+0.01);
+  } catch(e){}
+}
+
+// 区切りの通知音：はっきり聞こえる3音チャイム。
+// YouTube等のBGMが鳴っていても埋もれないよう、少し強め・高めに。
 function playChime(){
   const c=ctx();
-  [660,880].forEach((f,i)=>{
+  if(c.state==="suspended") c.resume();   // 念のため毎回起こす
+  const seq=[784,988,1319];               // G5-B5-E6 の明るい上昇
+  seq.forEach((f,i)=>{
     const o=c.createOscillator(), g=c.createGain();
-    o.type="sine"; o.frequency.value=f;
-    const t=c.currentTime+i*0.14;
+    o.type="triangle"; o.frequency.value=f;   // triangleはsineより通りやすい
+    const t=c.currentTime+i*0.12;
     g.gain.setValueAtTime(0,t);
-    g.gain.linearRampToValueAtTime(0.25,t+0.02);
-    g.gain.exponentialRampToValueAtTime(0.001,t+0.5);
+    g.gain.linearRampToValueAtTime(0.5,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.45);
     o.connect(g).connect(c.destination); o.start(t); o.stop(t+0.5);
   });
 }
@@ -433,8 +454,26 @@ function renderHome(){
   }).join("");
   const addChip = `<button class="bgm-chip add ${dis}" onclick="openAddYt()"><span class="ic">＋</span>YouTubeから追加</button>`;
 
+  // 中断した実行があれば「続きから」を表示
+  const prog = getRunProgress();
+  let resumeCard = "";
+  if(prog){
+    const r = ROUTINES.find(x=>x.id===prog.routineId);
+    if(r){
+      resumeCard = `<div class="card" style="margin-bottom:16px; border-color:var(--accent); background:#EEF2F6">
+        <div style="font-size:13px; font-weight:700; margin-bottom:8px">途中のルーティンがあります</div>
+        <div class="muted" style="font-size:13px; margin-bottom:12px">${r.emoji} ${escapeHtml(r.name)} の続きから再開できます</div>
+        <div style="display:flex; gap:10px">
+          <button class="primary" style="margin-top:0; flex:1" onclick="resumeRun()">続きから</button>
+          <button class="ghost" style="padding:0 16px" onclick="discardResume()">やめる</button>
+        </div>
+      </div>`;
+    } else { clearRunProgress(); }
+  }
+
   app.innerHTML = headerHTML("home") + `<div class="fade">
     <p class="muted" style="font-size:15px; margin:0 0 20px">今日も、できる範囲で。</p>
+    ${resumeCard}
     <p style="font-size:13px; font-weight:700; letter-spacing:1px; margin:0 0 12px">ルーティンを選ぶ</p>
     ${picks}
 
@@ -492,48 +531,134 @@ function removeYt(ev, id){
 
 // ---- 実行画面 ----
 let run = null;
-function start(id){
-  stopPreview();
-  state.routineId=id; state.screen="run";
-  const r=getRoutine();
+const RUN_KEY = "routine-timer-run";   // 中断復帰用に進行状況を保存
+
+function buildSteps(r){
   const steps=[];
   r.items.forEach(it=>{ steps.push({type:"ex",data:it}); if(it.rest>0) steps.push({type:"rest",secs:it.rest}); });
-  run={ steps, idx:0, remain:null, imgIdx:0, timer:null };
-  if(sound.bgm) startBgm();
-  render(); enterStep();
+  return steps;
 }
-function go(s){ if(run&&run.timer) clearInterval(run.timer); if(s!=="run") stopBgm(); state.screen=s; render(); }
+function start(id, resume){
+  stopPreview();
+  unlockAudio();                      // 実行開始の操作で音を確実にアンロック
+  state.routineId=id; state.screen="run";
+  const r=getRoutine();
+  const steps=buildSteps(r);
+  if(resume && resume.routineId===id && resume.idx<steps.length){
+    run={ steps, idx:resume.idx, remain:resume.remain, imgIdx:resume.imgIdx||0, timer:null, paused:true };
+  } else {
+    run={ steps, idx:0, remain:null, imgIdx:0, timer:null, paused:false };
+  }
+  if(sound.bgm && !run.paused) startBgm();
+  render();
+  if(run.paused) renderRun();         // 復帰時は一時停止状態で表示（ユーザーが再開を押す）
+  else enterStep();
+}
+function go(s){
+  if(run&&run.timer) clearInterval(run.timer);
+  if(s!=="run"){ stopBgm(); }
+  state.screen=s; render();
+}
+// 中断（やめる）：進行状況を保存してホームへ
+function quitRun(){
+  if(run){ saveRunProgress(); if(run.timer) clearInterval(run.timer); }
+  stopBgm();
+  state.screen="home"; render();
+}
+function saveRunProgress(){
+  try {
+    const step=run.steps[run.idx];
+    // 回数種目は残り時間の概念がないのでremainはnull保存でOK
+    localStorage.setItem(RUN_KEY, JSON.stringify({
+      routineId: state.routineId, idx: run.idx, imgIdx: run.imgIdx,
+      remain: (step && (step.type==="rest"||step.data.mode==="time")) ? run.remain : null,
+      at: Date.now()
+    }));
+  } catch(e){}
+}
+function clearRunProgress(){ try{ localStorage.removeItem(RUN_KEY); }catch(e){} }
+function getRunProgress(){
+  try { const r=JSON.parse(localStorage.getItem(RUN_KEY)||"null"); return r; } catch(e){ return null; }
+}
 
 function enterStep(){
   clearInterval(run.timer);
+  run.paused=false;
   const step=run.steps[run.idx];
   const timed = step.type==="rest" || (step.type==="ex"&&step.data.mode==="time");
   if(!timed){ run.remain=null; render(); return; }
-  run.remain = step.type==="rest" ? step.secs : step.data.value;
+  if(run.remain==null) run.remain = step.type==="rest" ? step.secs : step.data.value;
   render();
+  tick();
+}
+function tick(){
+  clearInterval(run.timer);
   run.timer=setInterval(()=>{
+    if(run.paused) return;
     run.remain--;
     if(run.remain<=0){ clearInterval(run.timer); setTimeout(()=>next(true),200); }
     updateTimerText();
+    saveRunProgress();
   },1000);
 }
 function updateTimerText(){ const el=document.getElementById("timer"); if(el) el.textContent=Math.max(run.remain,0); }
+
+// 一時停止 / 再開
+function togglePause(){
+  if(!run) return;
+  run.paused=!run.paused;
+  if(run.paused){ stopBgm(); }
+  else { unlockAudio(); if(sound.bgm) startBgm();
+    const step=run.steps[run.idx];
+    const timed = step.type==="rest" || (step.type==="ex"&&step.data.mode==="time");
+    if(timed && (run.timer==null)) tick();
+  }
+  renderRun();
+}
+
 function next(chime){
   if(chime && sound.chime) playChime();
-  if(run.idx+1>=run.steps.length){ stopBgm(); state.screen="done"; render(); return; }
-  run.idx++; run.imgIdx=0; enterStep();
+  if(run.idx+1>=run.steps.length){ stopBgm(); clearRunProgress(); state.screen="done"; render(); return; }
+  run.idx++; run.imgIdx=0; run.remain=null; saveRunProgress(); enterStep();
 }
 function setImg(i){ run.imgIdx=i; render(); }
+
+// 「続きから」
+function resumeRun(){
+  const prog=getRunProgress();
+  if(!prog){ render(); return; }
+  start(prog.routineId, prog);
+}
+function discardResume(){ clearRunProgress(); render(); }
+
+// 実行中に次の種目名を得る（休憩は飛ばして次の「種目」を探す）
+function nextExerciseName(){
+  for(let j=run.idx+1;j<run.steps.length;j++){
+    if(run.steps[j].type==="ex") return run.steps[j].data.name;
+  }
+  return null;
+}
 
 function renderRun(){
   const step=run.steps[run.idx];
   const progress=Math.round((run.idx/run.steps.length)*100);
+  // 種目番号（休憩を除いた数え方）
+  const totalEx = run.steps.filter(s=>s.type==="ex").length;
+  const curExNo = run.steps.slice(0,run.idx+1).filter(s=>s.type==="ex").length;
+  const nextName = nextExerciseName();
+  const paused = run.paused;
+
+  // 次の種目予告バー
+  const upNext = nextName
+    ? `<div class="up-next">次は <strong>${escapeHtml(nextName)}</strong></div>`
+    : `<div class="up-next">次で最後の種目が終わります</div>`;
+
   let body;
   if(step.type==="rest"){
-    body=`<div class="card" style="text-align:center; padding:48px 24px">
+    body=`<div class="card" style="text-align:center; padding:40px 24px">
       <div class="muted" style="letter-spacing:2px; font-size:13px; margin-bottom:16px">ひと休み</div>
       <div class="big-num num" id="timer">${run.remain}</div>
-      <div class="muted" style="font-size:13px; margin-top:12px">次に備えて呼吸を整えて</div>
+      <div class="muted" style="font-size:13px; margin-top:12px">${nextName?`まもなく「${escapeHtml(nextName)}」`:"次に備えて呼吸を整えて"}</div>
     </div>`;
   } else {
     const d=step.data;
@@ -558,13 +683,27 @@ function renderRun(){
       ${main}
     </div>`;
   }
+
+  // 時間系ステップのみ一時停止ボタンを出す（回数種目は手動で進むため不要）
+  const timed = step.type==="rest" || (step.type==="ex"&&step.data.mode==="time");
+  const pauseBtn = timed
+    ? `<button class="ghost" style="flex:1; padding:12px" onclick="togglePause()">${paused?"▶ 再開":"⏸ 一時停止"}</button>`
+    : "";
+
   app.innerHTML = `<div class="fade">
-    <div class="progress-wrap" style="margin-top:28px"><div class="progress-bar" style="width:${progress}%"></div></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:24px; margin-bottom:8px">
+      <span class="muted" style="font-size:12px">種目 ${curExNo} / ${totalEx}</span>
+      ${paused?`<span style="font-size:12px; color:var(--accent); font-weight:700">一時停止中</span>`:""}
+    </div>
+    <div class="progress-wrap"><div class="progress-bar" style="width:${progress}%"></div></div>
+    ${upNext}
     ${body}
-    <div style="display:flex; gap:10px; margin-top:20px">
-      <button class="ghost" style="flex:1; padding:12px" onclick="go('home')">やめる</button>
+    <div style="display:flex; gap:10px; margin-top:16px">
+      <button class="ghost" style="flex:1; padding:12px" onclick="quitRun()">中断</button>
+      ${pauseBtn}
       <button class="ghost" style="flex:1; padding:12px" onclick="next(false)">スキップ</button>
     </div>
+    <p class="muted" style="text-align:center; font-size:11px; margin-top:10px">中断しても、次に開くと続きから再開できます</p>
   </div>`;
 }
 
@@ -619,15 +758,24 @@ function renderCalendar(){
 let editing = null;   // 編集中ルーティンのディープコピー
 const EMOJIS = ["🌅","🌙","⚡","🧘","🏃","💪","🌿","☀️","🌊","⭐"];
 
+let expanded = new Set();   // 展開中（フォームを開いている）種目idの集合
 function openEdit(id){
   stopPreview();
   if(id==="new"){
     editing = { id:uid(), name:"新しいルーティン", emoji:"🌿", items:[ newExercise() ] };
+    expanded = new Set(editing.items.map(it=>it.id));   // 新規は最初から開く
   } else {
     const r = ROUTINES.find(x=>x.id===id);
     editing = JSON.parse(JSON.stringify(r));   // 元を壊さないようコピー
+    expanded = new Set();                      // 既存は折りたたんだ一覧から開始
   }
   state.screen="edit"; render();
+}
+function toggleExpand(id){ if(expanded.has(id)) expanded.delete(id); else expanded.add(id); render(); }
+function toggleAllExpand(){
+  if(expanded.size>0) expanded.clear();
+  else expanded = new Set(editing.items.map(it=>it.id));
+  render();
 }
 function newExercise(){ return { id:uid(), name:"", mode:"time", value:30, rest:10, imgs:[] }; }
 
@@ -636,6 +784,25 @@ function renderEdit(){
   const emojiPicker = EMOJIS.map(em=>`<button class="mini ${e.emoji===em?"":""}" style="${e.emoji===em?"border-color:var(--accent);background:#EEF2F6":""}" onclick="setEmoji('${em}')">${em}</button>`).join("");
 
   const cards = e.items.map((it,idx)=>{
+    const summary = it.mode==="time" ? `${it.value}秒` : `${it.value}回`;
+    const restTxt = it.rest>0 ? ` ・ 休憩${it.rest}秒` : "";
+    const imgCount = (it.imgs||[]).filter(im=>im.src).length;
+    const imgTxt = imgCount>0 ? ` ・ 画像${imgCount}` : "";
+
+    // 折りたたみ時：テーブル状の1行（ドラッグ可・編集ボタンつき）
+    if(!expanded.has(it.id)){
+      return `<div class="ex-row" data-idx="${idx}">
+        <span class="drag-handle" onpointerdown="dragStart(event,${idx})" title="ドラッグで並べ替え">⠿</span>
+        <span class="muted" style="font-size:12px; width:18px; text-align:center">${idx+1}</span>
+        <span style="flex:1; min-width:0">
+          <div style="font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${escapeHtml(it.name||"（名称未設定）")}</div>
+          <div class="muted" style="font-size:11px">${summary}${restTxt}${imgTxt}</div>
+        </span>
+        <button class="ghost" style="padding:6px 12px; font-size:12px" onclick="toggleExpand('${it.id}')">編集</button>
+      </div>`;
+    }
+
+    // 展開時：フル編集フォーム
     const thumbs = it.imgs.map((im,i)=>`
       <div class="thumb" style="${im.src?`background-image:url('${im.src}')`:""}">
         ${im.src?"":`<span style="font-size:10px; color:var(--sub); padding:2px; text-align:center">${escapeHtml(im.label||"")}</span>`}
@@ -659,9 +826,10 @@ function renderEdit(){
         <span class="drag-handle" onpointerdown="dragStart(event,${idx})" title="ドラッグで並べ替え">⠿</span>
         <span class="muted" style="font-size:12px; width:18px">${idx+1}</span>
         <input class="field" value="${escapeHtml(it.name)}" placeholder="種目名" onchange="setField(${idx},'name',this.value)">
+        <button class="ghost" style="padding:6px 10px; font-size:12px" onclick="toggleExpand('${it.id}')">閉じる</button>
       </div>
 
-      <div class="row" style="margin-top:0">
+      <div class="row" style="margin-top:4px">
         <div class="seg">
           <button class="${it.mode==="time"?"on":""}" onclick="setMode(${idx},'time')">時間</button>
           <button class="${it.mode==="reps"?"on":""}" onclick="setMode(${idx},'reps')">回数</button>
@@ -684,12 +852,8 @@ function renderEdit(){
         <button class="thumb-add" onclick="pickImg(${idx})">＋</button>
       </div>
 
-      <div class="row" style="margin-top:14px; justify-content:space-between">
-        <div style="display:flex; gap:8px">
-          <button class="mini" onclick="moveEx(${idx},-1)" ${idx===0?"disabled":""}>↑</button>
-          <button class="mini" onclick="moveEx(${idx},1)" ${idx===e.items.length-1?"disabled":""}>↓</button>
-        </div>
-        <button class="ghost" style="color:#B4524B; border-color:#E6C9C5" onclick="removeEx(${idx})">削除</button>
+      <div class="row" style="margin-top:14px; justify-content:flex-end">
+        <button class="ghost" style="color:#B4524B; border-color:#E6C9C5" onclick="removeEx(${idx})">この種目を削除</button>
       </div>
     </div>`;
   }).join("");
@@ -704,7 +868,11 @@ function renderEdit(){
     <label class="lbl" style="margin-top:12px">アイコン</label>
     <div class="row" style="flex-wrap:wrap; margin-top:4px">${emojiPicker}</div>
 
-    <p style="font-size:13px; font-weight:700; letter-spacing:1px; margin:22px 0 10px">種目（${e.items.length}）</p>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 6px">
+      <p style="font-size:13px; font-weight:700; letter-spacing:1px; margin:0">種目（${e.items.length}）</p>
+      <button class="ghost" style="padding:5px 10px; font-size:11px" onclick="toggleAllExpand()">${expanded.size>0?"すべて閉じる":"すべて開く"}</button>
+    </div>
+    <p class="muted" style="font-size:11px; margin:0 0 10px">⠿ をつかんでスライドで並べ替え ・ 各種目の「編集」で詳細を変更</p>
     ${cards}
     <button class="routine-pick" style="justify-content:center; border-style:dashed; color:var(--sub); margin-top:4px" onclick="addEx()">＋ 種目を追加</button>
 
@@ -753,7 +921,8 @@ function moveEx(idx,dir){
 let drag = null;  // { fromIdx, cards, overIdx }
 function dragStart(ev, idx){
   ev.preventDefault();
-  const cards = Array.from(document.querySelectorAll(".ex-card"));
+  const cards = Array.from(document.querySelectorAll(".ex-card, .ex-row"));
+  if(!cards.length) return;
   drag = { fromIdx:idx, overIdx:idx, cards };
   cards[idx].classList.add("dragging");
   const onMove = (e)=>{
@@ -791,7 +960,7 @@ function removeEx(idx){
   if(!confirm(`「${editing.items[idx].name||"この種目"}」を削除しますか？`)) return;
   editing.items.splice(idx,1); render();
 }
-function addEx(){ editing.items.push(newExercise()); render(); }
+function addEx(){ const ex=newExercise(); editing.items.push(ex); expanded.add(ex.id); render(); }
 
 // 画像アップロード（ファイル選択→縮小→dataURL）
 function pickImg(idx){
